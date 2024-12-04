@@ -1,30 +1,56 @@
 package com.example.ceg
 
+import android.annotation.SuppressLint
 import android.os.Bundle
-import android.widget.Button
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.AnimationVector1D
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.tween
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.material3.Text
-import androidx.compose.runtime.Composable
-import androidx.compose.ui.Modifier
-import androidx.compose.ui.tooling.preview.Preview
-import com.example.ceg.ui.theme.CEGTheme
-import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.*
-import androidx.compose.runtime.*
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextField
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.MutableIntState
+import androidx.compose.runtime.MutableState
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import kotlin.random.Random
+import kotlin.random.nextInt
 
 
 class MainActivity : ComponentActivity() {
@@ -37,14 +63,59 @@ class MainActivity : ComponentActivity() {
     }
 }
 
+@SuppressLint("CoroutineCreationDuringComposition")
 @Composable
 fun MathTrainingApp() {
-    var score by remember { mutableIntStateOf(0) }
-    var question by remember { mutableStateOf(generateQuestion()) }
+    var score by remember { mutableIntStateOf(1) }
+    var question by remember { mutableStateOf(generateQuestion(1)) }
     var userAnswer by remember { mutableStateOf("") }
     var incorrectAttempts by remember { mutableIntStateOf(0) }
     var state by remember { mutableStateOf(States.Question) }
+    val timerDuration = remember { mutableIntStateOf(10) } // Начальная длительность таймера
 
+    var isTimerRunning = remember { mutableStateOf(true) } // Состояние таймера
+    val animatedValue = remember { mutableStateOf(Animatable(1f)) } // Начинаем с 1
+    val coroutineScope = rememberCoroutineScope()
+
+
+    fun reloadTimer() {
+        timerDuration.intValue = 15
+        state = States.Question
+        isTimerRunning.value = true
+        coroutineScope.launch {
+            animatedValue.value.snapTo(1f)
+        }
+    }
+    fun stopTimer(){
+        coroutineScope.launch {
+            isTimerRunning.value =false
+            animatedValue.value.snapTo(0f)
+            timerDuration.intValue = 0
+        }
+    }
+
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = Dp(30F)),
+        horizontalArrangement = Arrangement.Center
+    ) {
+        CircularTimer(
+            totalTime = timerDuration,
+            onTimerFinish = {
+                isTimerRunning.value = false
+                incorrectAttempts++
+                state = if (incorrectAttempts >= 3) {
+                    States.Lose
+                } else {
+                    States.Incorrect
+                }
+            },
+            isTimerRunning = isTimerRunning,
+            animatedValue = animatedValue
+        )
+
+    }
     Box(
         contentAlignment = Alignment.Center,
         modifier = Modifier
@@ -53,11 +124,12 @@ fun MathTrainingApp() {
     ) {
         when (state) {
             States.Lose -> {
+                stopTimer()
                 GameOverScreen(score) {
-                    score = 0
+                    score = 1
                     incorrectAttempts = 0
-                    question = generateQuestion()
-                    state = States.Question
+                    question = generateQuestion(score)
+                    reloadTimer()
                 }
             }
 
@@ -77,7 +149,7 @@ fun MathTrainingApp() {
                         modifier = Modifier
                             .border(2.dp, Color.Black, RoundedCornerShape(8.dp))
                             .height(Dp(150F))
-                            .width(Dp(300F))
+                            .width(Dp(350F))
                             .background(Color(254, 174, 0), shape = RoundedCornerShape(16.dp))
                     ) {
                         Text(
@@ -97,8 +169,8 @@ fun MathTrainingApp() {
                                 onClick = {
                                     if (question.checkAnswer(true)) {
                                         score++
-                                        question = generateQuestion()
-                                        state = States.Question
+                                        question = generateQuestion(score)
+                                        reloadTimer()
                                     } else {
                                         incorrectAttempts++
                                         state = if (incorrectAttempts >= 3) {
@@ -126,8 +198,9 @@ fun MathTrainingApp() {
                                 onClick = {
                                     if (question.checkAnswer(false)) {
                                         score++
-                                        question = generateQuestion()
-                                        state = States.Question
+                                        question = generateQuestion(score)
+                                        reloadTimer()
+
                                     } else {
                                         incorrectAttempts++
                                         state = if (incorrectAttempts >= 3) {
@@ -165,9 +238,9 @@ fun MathTrainingApp() {
                                 val answer = userAnswer.toIntOrNull()
                                 if (question.checkAnswer(answer)) {
                                     score++
-                                    question = generateQuestion()
+                                    question = generateQuestion(score)
                                     userAnswer = ""
-                                    state = States.Question
+                                    reloadTimer()
                                 } else {
                                     userAnswer = ""
                                     incorrectAttempts++
@@ -196,9 +269,11 @@ fun MathTrainingApp() {
             }
 
             else -> {
+                stopTimer()
                 TrueAnswerScreen(question.correctAnswer()) {
                     state = States.Question
-                    question = generateQuestion()
+                    question = generateQuestion(score)
+                    reloadTimer()
                 }
             }
         }
@@ -216,42 +291,55 @@ data class Question(val text: String, val answer: Any, val isBoolean: Boolean = 
 
 }
 
-fun generateQuestion(): Question {
-    val random = Random.nextInt(0, 2) // Изменено на 3, чтобы включить новые операции
+fun generateQuestion(difficulty: Int): Question {
+    val random = Random.nextInt(0, 2)
+
+    // Увеличиваем диапазон случайных чисел в зависимости от уровня сложности
+    val range = 1..(10 * difficulty)
 
     when (random) {
         0 -> {
             // Генерация простого арифметического примера
-            val a = Random.nextInt(1, 10)
-            val b = Random.nextInt(1, 10)
+            val a = Random.nextInt(range)
+            val b = Random.nextInt(range)
             val operation = Random.nextInt(0, 4) // 0-3 для 4 операций
             val answer: Int
             val operationSymbol: String
 
-            if (operation == 0) {
-                answer = a + b
-                operationSymbol = "+"
-            } else if (operation == 1) {
-                answer = a - b
-                operationSymbol = "-"
-            } else if (operation == 2) {
-                answer = a * b
-                operationSymbol = "*"
-            } else {
-                answer = if (b != 0) a / b else a // Избегаем деления на ноль
-                operationSymbol = "/"
+            when (operation) {
+                0 -> {
+                    answer = a + b
+                    operationSymbol = "+"
+                }
+
+                1 -> {
+                    answer = a - b
+                    operationSymbol = "-"
+                }
+
+                2 -> {
+                    answer = a * b
+                    operationSymbol = "*"
+                }
+
+                else -> {
+                    answer = if (b != 0) a / b else a // Избегаем деления на ноль
+                    operationSymbol = "/"
+                }
             }
 
             return Question("$a $operationSymbol $b = ?", answer)
         }
+
         1 -> {
             // Генерация логического выражения
-            val a = Random.nextInt(1, 10)
-            val b = Random.nextInt(1, 10)
+            val a = Random.nextInt(range)
+            val b = Random.nextInt(range)
             val operation = if (Random.nextBoolean()) "<" else ">"
             val answer = (operation == "<" && a < b) || (operation == ">" && a > b)
             return Question("$a $operation $b?", answer, isBoolean = true)
         }
+
         else -> {
             // Можно добавить дополнительные типы вопросов, если нужно
             return Question("Дополнительный тип вопроса", false) // Пример
@@ -309,6 +397,69 @@ fun GameOverScreen(score: Int, onRestart: () -> Unit) {
         }
     }
 }
+
+@Composable
+fun CircularTimer(
+    modifier: Modifier = Modifier,
+    totalTime: MutableIntState, // Общее время в секундах
+    onTimerFinish: () -> Unit,
+    isTimerRunning: MutableState<Boolean>,
+    animatedValue: MutableState<Animatable<Float, AnimationVector1D>>
+
+
+) {
+
+    LaunchedEffect(totalTime.intValue) {
+        if (isTimerRunning.value && totalTime.intValue > 0) {
+            animatedValue.value.animateTo(
+                targetValue = 0f,
+                animationSpec = tween(
+                    durationMillis = totalTime.intValue * 1000,
+                    easing = LinearEasing
+                )
+            )
+        }
+    }
+    LaunchedEffect(totalTime.intValue) {
+
+        if (isTimerRunning.value) {
+
+            if (totalTime.intValue > 0) {
+                delay(1000L)
+                totalTime.intValue--
+            } else {
+                onTimerFinish()
+            }
+        }
+    }
+
+
+    val textSize = 48.sp
+
+    Box(modifier = modifier.size(200.dp), contentAlignment = Alignment.Center) {
+        Canvas(modifier = Modifier.size(200.dp)) {
+            drawCircle(
+                color = Color.LightGray,
+                radius = size.minDimension / 2,
+                style = Stroke(width = 20.dp.toPx())
+            )
+            drawArc(
+                color = Color(254, 174, 0),
+                startAngle = -90f,
+                sweepAngle = animatedValue.value.value * 360f,
+                useCenter = false,
+                style = Stroke(width = 20.dp.toPx()),
+                size = size.copy(width = size.width, height = size.height)
+            )
+        }
+        Text(
+            text = totalTime.intValue.toString(),
+            fontSize = textSize,
+            color = Color.Black
+        )
+    }
+}
+
 
 enum class States {
     Lose,
