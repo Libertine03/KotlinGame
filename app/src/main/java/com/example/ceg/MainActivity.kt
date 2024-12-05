@@ -51,44 +51,47 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlin.random.Random
 import kotlin.random.nextInt
-
+import android.content.Context
+import android.content.SharedPreferences
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
         setContent {
-            MathTrainingApp()
+            MathTrainingApp(this)
         }
     }
 }
 
 @SuppressLint("CoroutineCreationDuringComposition")
 @Composable
-fun MathTrainingApp() {
+fun MathTrainingApp(activity: ComponentActivity) {
+    val sharedPreferencesManager = SharedPreferencesManager(activity)
+
     var score by remember { mutableIntStateOf(1) }
     var question by remember { mutableStateOf(generateQuestion(1)) }
     var userAnswer by remember { mutableStateOf("") }
     var incorrectAttempts by remember { mutableIntStateOf(0) }
-    var state by remember { mutableStateOf(States.Question) }
-    val timerDuration = remember { mutableIntStateOf(10) } // Начальная длительность таймера
+    var state by remember { mutableStateOf(States.Start) }
+    val timerDuration = remember { mutableIntStateOf(0) }
 
-    var isTimerRunning = remember { mutableStateOf(true) } // Состояние таймера
-    val animatedValue = remember { mutableStateOf(Animatable(1f)) } // Начинаем с 1
+    val isTimerRunning = remember { mutableStateOf(false) }
+    val animatedValue = remember { mutableStateOf(Animatable(0f)) }
     val coroutineScope = rememberCoroutineScope()
 
-
     fun reloadTimer() {
-        timerDuration.intValue = 15
+        timerDuration.intValue = 15 + score * 2
         state = States.Question
         isTimerRunning.value = true
         coroutineScope.launch {
             animatedValue.value.snapTo(1f)
         }
     }
-    fun stopTimer(){
+
+    fun stopTimer() {
         coroutineScope.launch {
-            isTimerRunning.value =false
+            isTimerRunning.value = false
             animatedValue.value.snapTo(0f)
             timerDuration.intValue = 0
         }
@@ -114,7 +117,6 @@ fun MathTrainingApp() {
             isTimerRunning = isTimerRunning,
             animatedValue = animatedValue
         )
-
     }
     Box(
         contentAlignment = Alignment.Center,
@@ -125,12 +127,17 @@ fun MathTrainingApp() {
         when (state) {
             States.Lose -> {
                 stopTimer()
-                GameOverScreen(score) {
-                    score = 1
-                    incorrectAttempts = 0
-                    question = generateQuestion(score)
-                    reloadTimer()
-                }
+                sharedPreferencesManager.saveMaxScore(score)
+                GameOverScreen(score,
+                    onRestart = {
+                        score = 1
+                        incorrectAttempts = 0
+                        question = generateQuestion(score)
+                        reloadTimer()
+                    },
+                    onMainMenu = {
+                        state = States.Start
+                    })
             }
 
             States.Question -> {
@@ -268,6 +275,38 @@ fun MathTrainingApp() {
                 }
             }
 
+            States.Start -> {
+                Column(
+                    verticalArrangement = Arrangement.Center,
+                    modifier = Modifier
+                        .fillMaxSize()
+                ) {
+                    Text(
+                        text = "Рекорд пройденных уровней: ${sharedPreferencesManager.readMaxScore()}",
+                        fontSize = 20.sp,
+                        modifier = Modifier.padding(horizontal = Dp(55F))
+                    )
+
+                    Spacer(modifier = Modifier.height(5.dp))
+
+                    Button(
+                        onClick = {
+                            state = States.Question
+                            question = generateQuestion(score)
+                            reloadTimer()
+                        },
+                        colors = ButtonDefaults.buttonColors(Color(254, 174, 0)),
+                        shape = RoundedCornerShape(8.dp),
+                        modifier = Modifier
+                            .padding(horizontal = Dp(55F))
+                            .width(Dp(295F))
+                            .border(2.dp, Color.Black, RoundedCornerShape(8.dp))
+                    ) {
+                        Text("Начать игру", color = Color.Black, fontSize = 26.sp)
+                    }
+                }
+            }
+
             else -> {
                 stopTimer()
                 TrueAnswerScreen(question.correctAnswer()) {
@@ -280,15 +319,13 @@ fun MathTrainingApp() {
     }
 }
 
-
 data class Question(val text: String, val answer: Any, val isBoolean: Boolean = false) {
     fun checkAnswer(userAnswer: Any?): Boolean {
         return userAnswer == answer
     }
 
     fun correctAnswer() =
-        "Правильный ответ: ${if (answer == true) "Верно" else if (answer == false) "Неверно" else answer}"
-
+        "Правильный ответ: ${if (answer == true) "Да" else if (answer == false) "Нет" else answer}"
 }
 
 fun generateQuestion(difficulty: Int): Question {
@@ -370,13 +407,13 @@ fun TrueAnswerScreen(answer: String, onContinue: () -> Unit) {
                 .width(Dp(280F))
                 .border(2.dp, Color.Black, RoundedCornerShape(8.dp))
         ) {
-            Text("Продолжить", color = Color.Black)
+            Text("Продолжить", color = Color.Black, fontSize = 20.sp)
         }
     }
 }
 
 @Composable
-fun GameOverScreen(score: Int, onRestart: () -> Unit) {
+fun GameOverScreen(score: Int, onRestart: () -> Unit, onMainMenu: () -> Unit) {
     Column(
         modifier = Modifier.fillMaxSize(),
         verticalArrangement = Arrangement.Center,
@@ -393,7 +430,18 @@ fun GameOverScreen(score: Int, onRestart: () -> Unit) {
                 .width(Dp(280F))
                 .border(2.dp, Color.Black, RoundedCornerShape(8.dp))
         ) {
-            Text("Начать заново", color = Color.Black)
+            Text("Начать заново", color = Color.Black, fontSize = 20.sp)
+        }
+        Spacer(modifier = Modifier.height(16.dp))
+        Button(
+            onClick = onMainMenu,
+            colors = ButtonDefaults.buttonColors(Color(254, 174, 0)),
+            shape = RoundedCornerShape(8.dp),
+            modifier = Modifier
+                .width(Dp(280F))
+                .border(2.dp, Color.Black, RoundedCornerShape(8.dp))
+        ) {
+            Text("На главную страницу", color = Color.Black, fontSize = 20.sp)
         }
     }
 }
@@ -405,8 +453,6 @@ fun CircularTimer(
     onTimerFinish: () -> Unit,
     isTimerRunning: MutableState<Boolean>,
     animatedValue: MutableState<Animatable<Float, AnimationVector1D>>
-
-
 ) {
 
     LaunchedEffect(totalTime.intValue) {
@@ -421,7 +467,6 @@ fun CircularTimer(
         }
     }
     LaunchedEffect(totalTime.intValue) {
-
         if (isTimerRunning.value) {
 
             if (totalTime.intValue > 0) {
@@ -433,9 +478,7 @@ fun CircularTimer(
         }
     }
 
-
     val textSize = 48.sp
-
     Box(modifier = modifier.size(200.dp), contentAlignment = Alignment.Center) {
         Canvas(modifier = Modifier.size(200.dp)) {
             drawCircle(
@@ -461,8 +504,27 @@ fun CircularTimer(
 }
 
 
+class SharedPreferencesManager(context: Context) {
+
+    private val sharedPreferences: SharedPreferences =
+        context.getSharedPreferences("my_preferences", Context.MODE_PRIVATE)
+
+    // Метод для сохранения числа
+    fun saveMaxScore(number: Int) {
+        if (readMaxScore() < number) {
+            sharedPreferences.edit().putInt("max_score", number).apply()
+        }
+    }
+
+    // Метод для чтения числа
+    fun readMaxScore(): Int {
+        return sharedPreferences.getInt("max_score", 33) // Возвращает 0, если значение не найдено
+    }
+}
+
 enum class States {
     Lose,
     Incorrect,
-    Question
+    Question,
+    Start
 }
