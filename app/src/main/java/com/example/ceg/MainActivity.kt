@@ -53,6 +53,29 @@ import kotlin.random.Random
 import kotlin.random.nextInt
 import android.content.Context
 import android.content.SharedPreferences
+import android.view.ViewTreeObserver
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.asPaddingValues
+import androidx.compose.foundation.layout.ime
+import androidx.compose.foundation.layout.imePadding
+import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.layout.systemBars
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.State
+import androidx.compose.runtime.key
+import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.platform.LocalView
+import androidx.compose.ui.unit.times
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -64,9 +87,21 @@ class MainActivity : ComponentActivity() {
     }
 }
 
+@Composable
+fun keyboardAsState(): State<Boolean> {
+    val isImeVisible = WindowInsets.ime.getBottom(LocalDensity.current) > 0
+    return rememberUpdatedState(isImeVisible)
+}
+
 @SuppressLint("CoroutineCreationDuringComposition")
 @Composable
 fun MathTrainingApp(activity: ComponentActivity) {
+    val isKeyboardOpen by keyboardAsState() // true or false
+    val animatedFloat by animateFloatAsState(
+        targetValue = if (isKeyboardOpen) 100f else 200f,
+        label = "",
+    )
+
     val sharedPreferencesManager = SharedPreferencesManager(activity)
 
     var score by remember { mutableIntStateOf(1) }
@@ -97,88 +132,175 @@ fun MathTrainingApp(activity: ComponentActivity) {
         }
     }
 
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(vertical = Dp(30F)),
-        horizontalArrangement = Arrangement.Center
-    ) {
-        CircularTimer(
-            totalTime = timerDuration,
-            onTimerFinish = {
-                isTimerRunning.value = false
-                incorrectAttempts++
-                state = if (incorrectAttempts >= 3) {
-                    States.Lose
-                } else {
-                    States.Incorrect
-                }
-            },
-            isTimerRunning = isTimerRunning,
-            animatedValue = animatedValue
-        )
-    }
+    val focusRequester = remember { FocusRequester() }
+    val focusManager = LocalFocusManager.current
+
+    val systemPadding = WindowInsets.systemBars.asPaddingValues().calculateTopPadding()
+
     Box(
         contentAlignment = Alignment.Center,
         modifier = Modifier
             .fillMaxSize()
+            .imePadding()
             .background(Color(0x8056AEC1))
     ) {
-        when (state) {
-            States.Lose -> {
-                stopTimer()
-                sharedPreferencesManager.saveMaxScore(score)
-                GameOverScreen(score,
-                    onRestart = {
-                        score = 1
-                        incorrectAttempts = 0
-                        question = generateQuestion(score)
-                        reloadTimer()
-                    },
-                    onMainMenu = {
-                        state = States.Start
-                    })
-            }
+        Column(
+            modifier = Modifier.fillMaxSize(),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.SpaceBetween
+        ) {
+            CircularTimer(
+                modifier = Modifier
+                    .padding(top = systemPadding + 25.dp),
+                timerSize = animatedFloat,
+                totalTime = timerDuration,
+                onTimerFinish = {
+                    isTimerRunning.value = false
+                    incorrectAttempts++
+                    state = if (incorrectAttempts >= 3) {
+                        States.Lose
+                    } else {
+                        States.Incorrect
+                    }
+                },
+                isTimerRunning = isTimerRunning,
+                animatedValue = animatedValue
+            )
 
-            States.Question -> {
-                Column(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .padding(16.dp),
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.Center
-                ) {
-                    Text(text = "Уровень: $score", style = MaterialTheme.typography.headlineMedium)
-                    Spacer(modifier = Modifier.height(16.dp))
+            when (state) {
+                States.Lose -> {
+                    stopTimer()
+                    sharedPreferencesManager.saveMaxScore(score)
+                    GameOverScreen(score,
+                        onRestart = {
+                            score = 1
+                            incorrectAttempts = 0
+                            question = generateQuestion(score)
+                            reloadTimer()
+                        },
+                        onMainMenu = {
+                            state = States.Start
+                        })
+                }
 
-                    Box(
-                        contentAlignment = Alignment.Center,
+                States.Question -> {
+                    Column(
                         modifier = Modifier
-                            .border(2.dp, Color.Black, RoundedCornerShape(8.dp))
-                            .height(Dp(150F))
-                            .width(Dp(350F))
-                            .background(Color(254, 174, 0), shape = RoundedCornerShape(16.dp))
+                            .fillMaxSize()
+                            .padding(16.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.Center
                     ) {
                         Text(
-                            text = question.text,
-                            style = MaterialTheme.typography.titleLarge.copy(
-                                fontSize = 52.sp,
-                                fontWeight = FontWeight.Bold
-                            )
+                            text = "Уровень: $score",
+                            style = MaterialTheme.typography.headlineMedium
                         )
                         Spacer(modifier = Modifier.height(16.dp))
-                    }
 
-                    if (question.isBoolean) {
-                        Spacer(modifier = Modifier.height(48.dp))
-                        Row {
+                        Box(
+                            contentAlignment = Alignment.Center,
+                            modifier = Modifier
+                                .border(2.dp, Color.Black, RoundedCornerShape(8.dp))
+                                .height(Dp(150F * animatedFloat / 200))
+                                .width(Dp(350F * animatedFloat / 200))
+                                .background(Color(254, 174, 0), shape = RoundedCornerShape(16.dp))
+                        ) {
+                            Text(
+                                text = question.text,
+                                style = MaterialTheme.typography.titleLarge.copy(
+                                    fontSize =  animatedFloat / 200 * 52.sp,
+                                    fontWeight = FontWeight.Bold
+                                )
+                            )
+                            Spacer(modifier = Modifier.height(16.dp))
+                        }
+
+                        if (question.isBoolean) {
+                            Spacer(modifier = Modifier.height(48.dp))
+                            Row {
+                                Button(
+                                    onClick = {
+                                        if (question.checkAnswer(true)) {
+                                            score++
+                                            question = generateQuestion(score)
+                                            reloadTimer()
+                                        } else {
+                                            incorrectAttempts++
+                                            state = if (incorrectAttempts >= 3) {
+                                                States.Lose
+                                            } else {
+                                                States.Incorrect
+                                            }
+                                        }
+                                    },
+                                    colors = ButtonDefaults.buttonColors(Color(254, 174, 0)),
+                                    shape = RoundedCornerShape(8.dp),
+                                    border = BorderStroke(2.dp, Color.Black),
+                                    modifier = Modifier
+                                        .width(Dp(140F))
+                                ) {
+                                    Text(
+                                        "Да", color = Color.Black,
+                                        style = MaterialTheme.typography.titleLarge.copy(
+                                            fontSize = 28.sp,
+                                        )
+                                    )
+                                }
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Button(
+                                    onClick = {
+                                        if (question.checkAnswer(false)) {
+                                            score++
+                                            question = generateQuestion(score)
+                                            reloadTimer()
+
+                                        } else {
+                                            incorrectAttempts++
+                                            state = if (incorrectAttempts >= 3) {
+                                                States.Lose
+                                            } else {
+                                                States.Incorrect
+                                            }
+                                        }
+                                    },
+                                    colors = ButtonDefaults.buttonColors(Color(254, 174, 0)),
+                                    shape = RoundedCornerShape(8.dp),
+                                    border = BorderStroke(2.dp, Color.Black),
+                                    modifier = Modifier
+                                        .width(Dp(140F))
+                                )
+                                {
+                                    Text(
+                                        "Нет", color = Color.Black,
+                                        style = MaterialTheme.typography.titleLarge.copy(
+                                            fontSize = 28.sp
+                                        )
+                                    )
+                                }
+                            }
+                        } else {
+                            Spacer(modifier = Modifier.height(48.dp))
+                            TextField(
+                                modifier = Modifier
+                                    .focusRequester(focusRequester)
+                                    .onFocusChanged { state ->
+                                },
+                                value = userAnswer,
+                                onValueChange = { userAnswer = it },
+                                label = { Text("Введите ответ") },
+                            )
+                            Spacer(modifier = Modifier.height(8.dp))
                             Button(
                                 onClick = {
-                                    if (question.checkAnswer(true)) {
+                                    focusManager.clearFocus()
+                                    val answer = userAnswer.toIntOrNull()
+                                    if (question.checkAnswer(answer)) {
                                         score++
                                         question = generateQuestion(score)
+                                        userAnswer = ""
                                         reloadTimer()
                                     } else {
+                                        userAnswer = ""
                                         incorrectAttempts++
                                         state = if (incorrectAttempts >= 3) {
                                             States.Lose
@@ -189,130 +311,60 @@ fun MathTrainingApp(activity: ComponentActivity) {
                                 },
                                 colors = ButtonDefaults.buttonColors(Color(254, 174, 0)),
                                 shape = RoundedCornerShape(8.dp),
+                                border = BorderStroke(2.dp, Color.Black),
                                 modifier = Modifier
-                                    .width(Dp(140F))
-                                    .border(2.dp, Color.Black, RoundedCornerShape(8.dp))
+                                    .width(Dp(280F))
                             ) {
                                 Text(
-                                    "Да", color = Color.Black,
-                                    style = MaterialTheme.typography.titleLarge.copy(
-                                        fontSize = 28.sp,
-                                    )
-                                )
-                            }
-                            Spacer(modifier = Modifier.width(8.dp))
-                            Button(
-                                onClick = {
-                                    if (question.checkAnswer(false)) {
-                                        score++
-                                        question = generateQuestion(score)
-                                        reloadTimer()
-
-                                    } else {
-                                        incorrectAttempts++
-                                        state = if (incorrectAttempts >= 3) {
-                                            States.Lose
-                                        } else {
-                                            States.Incorrect
-                                        }
-                                    }
-                                },
-                                colors = ButtonDefaults.buttonColors(Color(254, 174, 0)),
-                                shape = RoundedCornerShape(8.dp),
-                                modifier = Modifier
-                                    .width(Dp(140F))
-                                    .border(2.dp, Color.Black, RoundedCornerShape(8.dp))
-                            )
-                            {
-                                Text(
-                                    "Нет", color = Color.Black,
+                                    "Проверить", color = Color.Black,
                                     style = MaterialTheme.typography.titleLarge.copy(
                                         fontSize = 28.sp
                                     )
                                 )
                             }
                         }
-                    } else {
-                        Spacer(modifier = Modifier.height(48.dp))
-                        TextField(
-                            value = userAnswer,
-                            onValueChange = { userAnswer = it },
-                            label = { Text("Введите ответ") }
+                    }
+                }
+
+                States.Start -> {
+                    Column(
+                        verticalArrangement = Arrangement.Center,
+                        modifier = Modifier
+                            .fillMaxSize()
+                    ) {
+                        Text(
+                            text = "Рекорд пройденных уровней: ${sharedPreferencesManager.readMaxScore()}",
+                            fontSize = 20.sp,
+                            modifier = Modifier.padding(horizontal = Dp(55F))
                         )
-                        Spacer(modifier = Modifier.height(8.dp))
+
+                        Spacer(modifier = Modifier.height(5.dp))
+
                         Button(
                             onClick = {
-                                val answer = userAnswer.toIntOrNull()
-                                if (question.checkAnswer(answer)) {
-                                    score++
-                                    question = generateQuestion(score)
-                                    userAnswer = ""
-                                    reloadTimer()
-                                } else {
-                                    userAnswer = ""
-                                    incorrectAttempts++
-                                    state = if (incorrectAttempts >= 3) {
-                                        States.Lose
-                                    } else {
-                                        States.Incorrect
-                                    }
-                                }
+                                state = States.Question
+                                question = generateQuestion(score)
+                                reloadTimer()
                             },
                             colors = ButtonDefaults.buttonColors(Color(254, 174, 0)),
                             shape = RoundedCornerShape(8.dp),
+                            border = BorderStroke(2.dp, Color.Black),
                             modifier = Modifier
-                                .width(Dp(280F))
-                                .border(2.dp, Color.Black, RoundedCornerShape(8.dp))
+                                .padding(horizontal = Dp(55F))
+                                .width(Dp(295F))
                         ) {
-                            Text(
-                                "Проверить", color = Color.Black,
-                                style = MaterialTheme.typography.titleLarge.copy(
-                                    fontSize = 28.sp
-                                )
-                            )
+                            Text("Начать игру", color = Color.Black, fontSize = 26.sp)
                         }
                     }
                 }
-            }
 
-            States.Start -> {
-                Column(
-                    verticalArrangement = Arrangement.Center,
-                    modifier = Modifier
-                        .fillMaxSize()
-                ) {
-                    Text(
-                        text = "Рекорд пройденных уровней: ${sharedPreferencesManager.readMaxScore()}",
-                        fontSize = 20.sp,
-                        modifier = Modifier.padding(horizontal = Dp(55F))
-                    )
-
-                    Spacer(modifier = Modifier.height(5.dp))
-
-                    Button(
-                        onClick = {
-                            state = States.Question
-                            question = generateQuestion(score)
-                            reloadTimer()
-                        },
-                        colors = ButtonDefaults.buttonColors(Color(254, 174, 0)),
-                        shape = RoundedCornerShape(8.dp),
-                        modifier = Modifier
-                            .padding(horizontal = Dp(55F))
-                            .width(Dp(295F))
-                            .border(2.dp, Color.Black, RoundedCornerShape(8.dp))
-                    ) {
-                        Text("Начать игру", color = Color.Black, fontSize = 26.sp)
+                else -> {
+                    stopTimer()
+                    TrueAnswerScreen(question.correctAnswer()) {
+                        state = States.Question
+                        question = generateQuestion(score)
+                        reloadTimer()
                     }
-                }
-            }
-
-            else -> {
-                stopTimer()
-                TrueAnswerScreen(question.correctAnswer()) {
-                    state = States.Question
-                    question = generateQuestion(score)
-                    reloadTimer()
                 }
             }
         }
@@ -403,9 +455,9 @@ fun TrueAnswerScreen(answer: String, onContinue: () -> Unit) {
             onClick = onContinue,
             colors = ButtonDefaults.buttonColors(Color(254, 174, 0)),
             shape = RoundedCornerShape(8.dp),
+            border = BorderStroke(2.dp, Color.Black),
             modifier = Modifier
                 .width(Dp(280F))
-                .border(2.dp, Color.Black, RoundedCornerShape(8.dp))
         ) {
             Text("Продолжить", color = Color.Black, fontSize = 20.sp)
         }
@@ -426,9 +478,9 @@ fun GameOverScreen(score: Int, onRestart: () -> Unit, onMainMenu: () -> Unit) {
             onClick = onRestart,
             colors = ButtonDefaults.buttonColors(Color(254, 174, 0)),
             shape = RoundedCornerShape(8.dp),
+            border = BorderStroke(2.dp, Color.Black),
             modifier = Modifier
                 .width(Dp(280F))
-                .border(2.dp, Color.Black, RoundedCornerShape(8.dp))
         ) {
             Text("Начать заново", color = Color.Black, fontSize = 20.sp)
         }
@@ -437,9 +489,9 @@ fun GameOverScreen(score: Int, onRestart: () -> Unit, onMainMenu: () -> Unit) {
             onClick = onMainMenu,
             colors = ButtonDefaults.buttonColors(Color(254, 174, 0)),
             shape = RoundedCornerShape(8.dp),
+            border = BorderStroke(2.dp, Color.Black),
             modifier = Modifier
                 .width(Dp(280F))
-                .border(2.dp, Color.Black, RoundedCornerShape(8.dp))
         ) {
             Text("На главную страницу", color = Color.Black, fontSize = 20.sp)
         }
@@ -449,6 +501,7 @@ fun GameOverScreen(score: Int, onRestart: () -> Unit, onMainMenu: () -> Unit) {
 @Composable
 fun CircularTimer(
     modifier: Modifier = Modifier,
+    timerSize: Float,
     totalTime: MutableIntState, // Общее время в секундах
     onTimerFinish: () -> Unit,
     isTimerRunning: MutableState<Boolean>,
@@ -479,25 +532,25 @@ fun CircularTimer(
     }
 
     val textSize = 48.sp
-    Box(modifier = modifier.size(200.dp), contentAlignment = Alignment.Center) {
+    Box(modifier = modifier.size(timerSize.dp), contentAlignment = Alignment.Center) {
         Canvas(modifier = Modifier.size(200.dp)) {
             drawCircle(
                 color = Color.LightGray,
                 radius = size.minDimension / 2,
-                style = Stroke(width = 20.dp.toPx())
+                style = Stroke(width = timerSize / 200 * 20.dp.toPx())
             )
             drawArc(
                 color = Color(254, 174, 0),
                 startAngle = -90f,
                 sweepAngle = animatedValue.value.value * 360f,
                 useCenter = false,
-                style = Stroke(width = 20.dp.toPx()),
+                style = Stroke(width = timerSize / 200 * 20.dp.toPx()),
                 size = size.copy(width = size.width, height = size.height)
             )
         }
         Text(
             text = totalTime.intValue.toString(),
-            fontSize = textSize,
+            fontSize = textSize * timerSize / 200,
             color = Color.Black
         )
     }
@@ -518,7 +571,7 @@ class SharedPreferencesManager(context: Context) {
 
     // Метод для чтения числа
     fun readMaxScore(): Int {
-        return sharedPreferences.getInt("max_score", 33) // Возвращает 0, если значение не найдено
+        return sharedPreferences.getInt("max_score", 0) // Возвращает 0, если значение не найдено
     }
 }
 
