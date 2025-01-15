@@ -60,6 +60,7 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.unit.times
 import kotlinx.coroutines.delay
+import kotlin.math.abs
 
 @SuppressLint("CoroutineCreationDuringComposition")
 @Composable
@@ -161,9 +162,21 @@ fun MathTrainingApp(activity: ComponentActivity) {
                     ) {
                         Text(
                             text = "Уровень: $score",
-                            style = MaterialTheme.typography.headlineMedium
+                            style = MaterialTheme.typography.headlineMedium,
+                            fontSize =  animatedFloat / 200 * 35.sp
                         )
-                        Spacer(modifier = Modifier.height(16.dp))
+                        Text(
+                            text = "Осталось жизней: ${abs(incorrectAttempts - 3)}",
+                            style = MaterialTheme.typography.headlineMedium,
+                            fontSize =  animatedFloat / 200 * 35.sp,
+                            color = when (abs(incorrectAttempts - 3)) {
+                                3 -> Color(0xFF006400)
+                                2 -> Color(0xFFCC8400)
+                                1 -> Color.Red
+                                else -> Color.Gray
+                            }
+                        )
+                        //Spacer(modifier = Modifier.height(16.dp))
 
                         Box(
                             contentAlignment = Alignment.Center,
@@ -302,7 +315,7 @@ fun MathTrainingApp(activity: ComponentActivity) {
                     ) {
                         Text(
                             text = "Рекорд пройденных уровней: ${sharedPreferencesManager.readMaxScore()}",
-                            fontSize = 20.sp,
+                            fontSize = 19.sp,
                             modifier = Modifier.padding(horizontal = Dp(55F))
                         )
 
